@@ -1,2 +1,2 @@
-# bp-rect-native-1
+# bp-react-native-1
 React native boilerplate code
