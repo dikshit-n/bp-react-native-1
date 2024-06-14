@@ -1,0 +1,9 @@
+{
+  "name": "warehouse",
+  "displayName": "warehouse",
+  "env": {
+    "DEV": ".env-dev.json",
+    "QA": ".env-qa.json",
+    "PROD": ".env-prod.json"
+  }
+}

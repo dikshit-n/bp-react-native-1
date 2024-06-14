@@ -1,0 +1,92 @@
+name: Build and Deploy
+
+on: [push]
+
+jobs:
+  # QA Build and deploy for android
+  android-qa-deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Save commit message to GITHUB_ENV
+        run: |
+          echo "GIT_COMMIT_MESSAGE=$(git show -s --format=%s)" >> $GITHUB_ENV
+
+      # Set up Java environment
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: 17
+          cache: 'gradle'
+          distribution: 'temurin'
+
+      - name: Install node modules
+        run: rm -rf node_modules && npm i
+
+      # QA build android
+      - name: QA Build
+        run: npm run build:android:qa
+
+      - name: Authenticate to gcloud
+        # Proceed this step, only if pushed to master or commit message has the keyword QA_ANDROID_BUILD
+        if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || contains(env.GIT_COMMIT_MESSAGE, 'QA_ANDROID_BUILD')) }}
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.GCLOUD_CREDENTIALS_ANDROID_QA }}'
+
+      # Upload signed APK to Firebase App Distribution
+      - name: Upload QA Android App APK Build to Firebase App Distribution
+        # Proceed this step, only if pushed to master or commit message has the keyword QA_ANDROID_BUILD
+        if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || contains(env.GIT_COMMIT_MESSAGE, 'QA_ANDROID_BUILD')) }}
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        with:
+          appId: '${{ secrets.APP_ID_ANDROID_QA }}'
+          file: ./android/app/build/outputs/apk/qa/debug/app-qa-debug.apk
+
+  # PROD Build and deployment for android
+  android-prod-deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Save commit message to GITHUB_ENV
+        run: |
+          echo "GIT_COMMIT_MESSAGE=$(git show -s --format=%s)" >> $GITHUB_ENV
+
+      - name: Download Keystore
+        env:
+          ANDROID_KEYSTORE_BASE64_PROD: ${{ secrets.ANDROID_KEYSTORE_BASE64_PROD }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64_PROD }}" > ./android/app/ap-warehouse-upload-key.keystore.asc
+          gpg -d --passphrase "${{ secrets.ANDROID_KEYSTORE_KEY_PASSPHRASE }}" --batch ./android/app/ap-warehouse-upload-key.keystore.asc > ./android/app/ap-warehouse-upload-key.keystore
+
+      # Set up Java environment
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: 17
+          cache: 'gradle'
+          distribution: 'temurin'
+
+      # Install node_modules
+      - name: Install node modules
+        run: rm -rf node_modules && npm i
+
+      # write necessary details into gradle properties to use them in build.gradle
+      - name: Configure Gradle Properties
+        run: |
+          echo "ANDROID_KEYSTORE_STORE_PASSPHRASE=${{ secrets.ANDROID_KEYSTORE_STORE_PASSPHRASE }}" >> ./android/gradle.properties
+          echo "ANDROID_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> ./android/gradle.properties
+          echo "ANDROID_KEYSTORE_KEY_PASSPHRASE=${{ secrets.ANDROID_KEYSTORE_KEY_PASSPHRASE }}" >> ./android/gradle.properties
+
+      # Generate signed AAB for qa, prod, dev
+      - name: Generate Signed AAB
+        run: npm run build:android:prod
+
+      # Upload signed AAB, so it will be accessible through github artifacts
+      - name: Upload Signed AAB
+        # Proceed this step, only if pushed to master or commit message has the keyword PROD_ANDROID_BUILD
+        if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || contains(env.GIT_COMMIT_MESSAGE, 'PROD_ANDROID_BUILD')) }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: signed-aab-prod
+          path: ./android/app/build/outputs/bundle/prodRelease/app-prod-release.aab

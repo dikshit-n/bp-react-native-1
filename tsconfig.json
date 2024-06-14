@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+      "jsx": "react",
+      "esModuleInterop": true,
+      "skipLibCheck": true,
+      "strict": false,
+      "baseUrl": ".", // This line is important
+      "paths": {
+        "src/*": ["./src/*"]
+      }
+  }
+}
